@@ -20,7 +20,11 @@ st.markdown("""
             width: 100% !important;
         }
     </style>
-""", unsafe_style_codes=True)
+""", unsafe_allow_html=True) # <-- FIXED PARAMETER NAME HERE
+
+# 2. Interactive Sidebar Panel Setup (Matches Strike Layout Structure)
+st.sidebar.title("🔧 Configuration")
+
 
 # 2. Interactive Sidebar Panel Setup (Matches Strike Layout Structure)
 st.sidebar.title("🔧 Configuration")
