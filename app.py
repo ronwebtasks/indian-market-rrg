@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# 1. Force full horizontal monitor canvas scaling
+# 1. Page Configuration for Widescreen Layout
 st.set_page_config(page_title="Live NSE RRG Dashboard", layout="wide")
 
 st.markdown("""
@@ -21,25 +21,28 @@ st.markdown("""
 # 2. Configuration Control Sidebar Panel
 st.sidebar.title("🔧 Settings Panel")
 
-# BENCHMARK SELECTOR (Matches Strike's Dropdown)
 BENCHMARK_LABEL = st.sidebar.selectbox(
     "Select Benchmark Index",
-    ["Nifty 50", "Nifty Next 50"]
+    ["Nifty 50", "Nifty 100", "Nifty 200"]
 )
 
-# Map labels to Yahoo Finance tickers
 BENCHMARK_MAP = {
     "Nifty 50": "^NSEI",
-    "Nifty Next 50": "^NSMIDCP"
+    "Nifty 100": "^CNX100",
+    "Nifty 200": "^CNX200"
 }
 BENCHMARK = BENCHMARK_MAP[BENCHMARK_LABEL]
 
 TAIL_LENGTH = st.sidebar.slider("Counts (Tail Days Path)", min_value=3, max_value=15, value=5, step=1)
-st.sidebar.caption(f"Currently Anchored to: {BENCHMARK_LABEL}")
+
+# NEW FEATURE: Interactive Custom Stock Ticker Input
+st.sidebar.markdown("---")
+st.sidebar.subheader("🚀 Add Custom Stock")
+custom_ticker_input = st.sidebar.text_input("Type NSE Ticker (e.g., ADANIENT, TATASTEEL):", "").strip().upper()
 
 st.title("🇮🇳 Indian Market Relative Rotation Graph (RRG)")
 
-# Asset Lists
+# Asset Lists - UPDATED with Midcap and Smallcap Indices
 INDEX_SECTORS = {
     "Nifty Bank": "^NSEBANK",
     "Nifty IT": "^CNXIT",
@@ -47,9 +50,12 @@ INDEX_SECTORS = {
     "Nifty Auto": "^CNXAUTO",
     "Nifty Infra": "^CNXINFRA",
     "Nifty Metal": "^CNXMETAL",
-    "Nifty Energy": "^CNXENERGY"
+    "Nifty Energy": "^CNXENERGY",
+    "Nifty Midcap 100": "^CRSMID",     # Added Midcap Index
+    "Nifty Smallcap 100": "^CNXSMALL"  # Added Smallcap Index
 }
 
+# Base Blue-Chip Stocks List
 STOCK_TICKERS = {
     "Reliance": "RELIANCE.NS",
     "HDFC Bank": "HDFCBANK.NS",
@@ -63,12 +69,21 @@ STOCK_TICKERS = {
     "Tata Motors": "TATAMOTORS.NS"
 }
 
-@st.cache_data(ttl=3600)
-def load_all_market_data():
-    # Fetch all tickers + both possible benchmarks to optimize speed
-    all_tickers = list(BENCHMARK_MAP.values()) + list(INDEX_SECTORS.values()) + list(STOCK_TICKERS.values())
-    data = yf.download(all_tickers, period="2y")['Close']
-    return data
+# Dynamically append custom ticker if provided by user
+if custom_ticker_input:
+    # Ensure standard National Stock Exchange formatting (.NS suffix)
+    formatted_ticker = custom_ticker_input if custom_ticker_input.endswith(".NS") else f"{custom_ticker_input}.NS"
+    display_name = custom_ticker_input.split(".")[0]
+    STOCK_TICKERS[display_name] = formatted_ticker
+
+@st.cache_data(ttl=1800) # Reduced cache to 30 mins to allow responsive stock injections
+def load_all_market_data(ticker_list):
+    try:
+        data = yf.download(ticker_list, period="2y")['Close']
+        return data
+    except Exception as e:
+        st.error(f"Error fetching data from Yahoo Finance: {e}")
+        return pd.DataFrame()
 
 def calculate_and_plot_rrg(df, items_dict, benchmark_ticker, tail_len):
     """Computes RRG metrics against chosen benchmark and generates the plot"""
@@ -78,7 +93,6 @@ def calculate_and_plot_rrg(df, items_dict, benchmark_ticker, tail_len):
     
     for name, ticker in items_dict.items():
         if ticker in df.columns and not df[ticker].dropna().empty and benchmark_ticker in df.columns:
-            # RRG relative strength calculations dynamically driven by selected benchmark
             df[f'RS_{name}'] = (df[ticker] / df[benchmark_ticker]) * 100
             df[f'RS_Ratio_{name}'] = df[f'RS_{name}'].rolling(window=window_rs).mean()
             
@@ -119,7 +133,7 @@ def calculate_and_plot_rrg(df, items_dict, benchmark_ticker, tail_len):
         elif current_x < 100 and current_y < 100: col = 'red'
         else: col = 'blue'
         
-        # Plot structural path lines
+        # Plot path trails
         ax.plot(x_history, y_history, color=col, alpha=0.35, linewidth=2)
         
         # Arrow pointers
@@ -127,7 +141,7 @@ def calculate_and_plot_rrg(df, items_dict, benchmark_ticker, tail_len):
         ax.annotate('', xy=(current_x, current_y), xytext=(prev_x, prev_y),
                     arrowprops=dict(arrowstyle="-|>", color=col, lw=2.5, mutation_scale=14, zorder=6))
         
-        # Outer dot bubble
+        # Plot bubble and text label
         ax.scatter(current_x, current_y, color=col, s=120, edgecolors='black', zorder=7)
         ax.annotate(name, (current_x, current_y), textcoords="offset points", xytext=(0,10), ha='center', fontweight='bold', fontsize=8.5)
     
@@ -140,22 +154,28 @@ def calculate_and_plot_rrg(df, items_dict, benchmark_ticker, tail_len):
     return fig
 
 try:
-    master_data = load_all_market_data()
+    # Build a master list of all tickers to download
+    required_tickers = list(BENCHMARK_MAP.values()) + list(INDEX_SECTORS.values()) + list(STOCK_TICKERS.values())
+    master_data = load_all_market_data(required_tickers)
     
-    # Create structural horizontal UI Selection Tabs
+    # Create UI Tabs
     tab1, tab2 = st.tabs(["🏛️ Sectoral Indices Matrix", "🚀 Blue-Chip Individual Stocks"])
     
     with tab1:
-        st.subheader(f"Sector Indices vs {BENCHMARK_LABEL}")
+        st.subheader(f"Sector & Cap Indices vs {BENCHMARK_LABEL}")
         fig_index = calculate_and_plot_rrg(master_data.copy(), INDEX_SECTORS, BENCHMARK, TAIL_LENGTH)
         st.pyplot(fig_index, use_container_width=True)
         
     with tab2:
-        st.subheader(f"Top Heavyweight Stocks vs {BENCHMARK_LABEL}")
+        st.subheader(f"Top Heavyweight & Custom Stocks vs {BENCHMARK_LABEL}")
+        if custom_ticker_input and (custom_ticker_input.split(".")[0] not in master_data.columns and f"{custom_ticker_input}.NS" not in master_data.columns):
+            st.warning(f"⚠️ Appending custom ticker '{custom_ticker_input}'. Please wait a brief moment for Yahoo Finance data sync...")
+            st.rerun() # Refresh once to fetch the newly added ticker data cleanly
+            
         fig_stock = calculate_and_plot_rrg(master_data.copy(), STOCK_TICKERS, BENCHMARK, TAIL_LENGTH)
         st.pyplot(fig_stock, use_container_width=True)
         
-    st.success(f"Analysis successfully re-anchored to {BENCHMARK_LABEL}.")
+    st.success(f"Analysis active and re-anchored to {BENCHMARK_LABEL}.")
 
 except Exception as e:
     st.error(f"Execution Error Check: {e}")
