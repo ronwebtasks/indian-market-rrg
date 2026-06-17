@@ -20,14 +20,26 @@ st.markdown("""
 
 # 2. Configuration Control Sidebar Panel
 st.sidebar.title("🔧 Settings Panel")
+
+# BENCHMARK SELECTOR (Matches Strike's Dropdown)
+BENCHMARK_LABEL = st.sidebar.selectbox(
+    "Select Benchmark Index",
+    ["Nifty 50", "Nifty Next 50"]
+)
+
+# Map labels to Yahoo Finance tickers
+BENCHMARK_MAP = {
+    "Nifty 50": "^NSEI",
+    "Nifty Next 50": "^NSMIDCP"
+}
+BENCHMARK = BENCHMARK_MAP[BENCHMARK_LABEL]
+
 TAIL_LENGTH = st.sidebar.slider("Counts (Tail Days Path)", min_value=3, max_value=15, value=5, step=1)
-st.sidebar.caption("Benchmark Anchor: Nifty 50 Index (^NSEI)")
+st.sidebar.caption(f"Currently Anchored to: {BENCHMARK_LABEL}")
 
 st.title("🇮🇳 Indian Market Relative Rotation Graph (RRG)")
 
-# Define Tickers for both tabs
-BENCHMARK = "^NSEI"
-
+# Asset Lists
 INDEX_SECTORS = {
     "Nifty Bank": "^NSEBANK",
     "Nifty IT": "^CNXIT",
@@ -53,21 +65,21 @@ STOCK_TICKERS = {
 
 @st.cache_data(ttl=3600)
 def load_all_market_data():
-    # Download everything at once to keep the page snappy
-    all_tickers = [BENCHMARK] + list(INDEX_SECTORS.values()) + list(STOCK_TICKERS.values())
+    # Fetch all tickers + both possible benchmarks to optimize speed
+    all_tickers = list(BENCHMARK_MAP.values()) + list(INDEX_SECTORS.values()) + list(STOCK_TICKERS.values())
     data = yf.download(all_tickers, period="2y")['Close']
     return data
 
-def calculate_and_plot_rrg(df, items_dict, tail_len):
-    """Computes RRG metrics and generates the plot canvas"""
+def calculate_and_plot_rrg(df, items_dict, benchmark_ticker, tail_len):
+    """Computes RRG metrics against chosen benchmark and generates the plot"""
     window_rs = 12  
     window_mom = 12 
     rrg_history = {}
     
     for name, ticker in items_dict.items():
-        if ticker in df.columns and not df[ticker].dropna().empty:
-            # RRG relative strength calculations
-            df[f'RS_{name}'] = (df[ticker] / df[BENCHMARK]) * 100
+        if ticker in df.columns and not df[ticker].dropna().empty and benchmark_ticker in df.columns:
+            # RRG relative strength calculations dynamically driven by selected benchmark
+            df[f'RS_{name}'] = (df[ticker] / df[benchmark_ticker]) * 100
             df[f'RS_Ratio_{name}'] = df[f'RS_{name}'].rolling(window=window_rs).mean()
             
             rolling_mean_ratio = df[f'RS_Ratio_{name}'].rolling(60).mean()
@@ -87,7 +99,7 @@ def calculate_and_plot_rrg(df, items_dict, tail_len):
             if len(clean_df) >= tail_len:
                 rrg_history[name] = clean_df.tail(tail_len).to_dict('records')
 
-    # Build the Matplotlib widescreen graph layout
+    # Build widescreen graph layout
     fig, ax = plt.subplots(figsize=(13, 7))
     ax.axhline(100, color='gray', linestyle='--', linewidth=1)
     ax.axvline(100, color='gray', linestyle='--', linewidth=1)
@@ -130,20 +142,20 @@ def calculate_and_plot_rrg(df, items_dict, tail_len):
 try:
     master_data = load_all_market_data()
     
-    # 3. Create structural horizontal UI Selection Tabs
+    # Create structural horizontal UI Selection Tabs
     tab1, tab2 = st.tabs(["🏛️ Sectoral Indices Matrix", "🚀 Blue-Chip Individual Stocks"])
     
     with tab1:
-        st.subheader("Sector Indices vs Nifty 50")
-        fig_index = calculate_and_plot_rrg(master_data.copy(), INDEX_SECTORS, TAIL_LENGTH)
+        st.subheader(f"Sector Indices vs {BENCHMARK_LABEL}")
+        fig_index = calculate_and_plot_rrg(master_data.copy(), INDEX_SECTORS, BENCHMARK, TAIL_LENGTH)
         st.pyplot(fig_index, use_container_width=True)
         
     with tab2:
-        st.subheader("Top Nifty Heavyweight Stocks vs Nifty 50")
-        fig_stock = calculate_and_plot_rrg(master_data.copy(), STOCK_TICKERS, TAIL_LENGTH)
+        st.subheader(f"Top Heavyweight Stocks vs {BENCHMARK_LABEL}")
+        fig_stock = calculate_and_plot_rrg(master_data.copy(), STOCK_TICKERS, BENCHMARK, TAIL_LENGTH)
         st.pyplot(fig_stock, use_container_width=True)
         
-    st.success("Analysis active. Switch between tabs at the top to track different asset classes.")
+    st.success(f"Analysis successfully re-anchored to {BENCHMARK_LABEL}.")
 
 except Exception as e:
     st.error(f"Execution Error Check: {e}")
