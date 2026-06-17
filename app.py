@@ -6,86 +6,95 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Live NSE RRG Dashboard", layout="wide")
 st.title("🇮🇳 Indian Market Relative Rotation Graph (RRG)")
-st.subheader("Live Sectoral Momentum Analysis (Refreshes on Page Load)")
+st.subheader("Live Sectoral Momentum Analysis")
 
-# 1. Define Benchmark (Nifty 50) and Key Sector Tickers
-BENCHMARK = "^NSEI"
+# 1. FIXED TICKERS: Swapped to fully compatible Yahoo Finance codes
+BENCHMARK = "^NSEI"  # Nifty 50
 SECTORS = {
-    "Nifty Bank": "NIFTY_BANK.NS",
+    "Nifty Bank": "^NSEBANK",
     "Nifty IT": "^CNXIT",
     "Nifty FMCG": "^CNXFMCG",
     "Nifty Auto": "^CNXAUTO",
-    "Nifty Realty": "^CNXREALTY",
-    "Nifty Metal": "^CNXMETAL"
+    "Nifty Infra": "^CNXINFRA",
+    "Nifty Metal": "^CNXMETAL",
+    "Nifty Energy": "^CNXENERGY"
 }
 
-@st.cache_data(ttl=3600)  # Caches data for 1 hour to stay fast, but refreshes daily/live
+@st.cache_data(ttl=3600)
 def load_rrg_data():
     all_tickers = [BENCHMARK] + list(SECTORS.values())
-    # Download past 1 year of daily historical data to calculate true momentum
-    data = yf.download(all_tickers, period="1y")['Close']
+    # Extended timeline to 2y to guarantee ample rolling mathematical window history
+    data = yf.download(all_tickers, period="2y")['Close']
     return data
 
 try:
     df = load_rrg_data()
     
-    # 2. Mathematical RRG Calculations (RS-Ratio and RS-Momentum)
-    window_rs = 12  # Standard RS tracking period
-    window_mom = 12 # Standard Momentum tracking period
+    window_rs = 12  
+    window_mom = 12 
     
     rrg_results = {}
     
     for name, ticker in SECTORS.items():
-        # Relative Strength (Sector Price / Benchmark Price) * 100
-        df[f'RS_{name}'] = (df[ticker] / df[BENCHMARK]) * 100
-        
-        # RS-Ratio: 12-period simple moving average of RS normalized
-        df[f'RS_Ratio_{name}'] = df[f'RS_{name}'].rolling(window=window_rs).mean()
-        # Simple Z-score normalization around baseline 100
-        df[f'RS_Ratio_Norm_{name}'] = 100 + ((df[f'RS_Ratio_{name}'] - df[f'RS_Ratio_{name}'].rolling(20).mean()) / df[f'RS_Ratio_{name}'].rolling(20).std())
-        
-        # RS-Momentum: Rate of change of RS-Ratio
-        df[f'RS_Mom_{name}'] = df[f'RS_Ratio_Norm_{name}'].pct_change(periods=window_mom) * 100
-        df[f'RS_Mom_Norm_{name}'] = 100 + ((df[f'RS_Mom_{name}'] - df[f'RS_Mom_{name}'].rolling(20).mean()) / df[f'RS_Mom_{name}'].rolling(20).std())
-        
-        # Extract the most recent live data coordinate points
-        rrg_results[name] = {
-            'x': df[f'RS_Ratio_Norm_{name}'].iloc[-1],
-            'y': df[f'RS_Mom_Norm_{name}'].iloc[-1]
-        }
+        if ticker in df.columns and not df[ticker].dropna().empty:
+            # Mathematical RRG calculations 
+            df[f'RS_{name}'] = (df[ticker] / df[BENCHMARK]) * 100
+            df[f'RS_Ratio_{name}'] = df[f'RS_{name}'].rolling(window=window_rs).mean()
+            
+            # Safe padding logic for statistical standard deviation metrics
+            rolling_mean_ratio = df[f'RS_Ratio_{name}'].rolling(60).mean()
+            rolling_std_ratio = df[f'RS_Ratio_{name}'].rolling(60).std().replace(0, np.nan)
+            
+            df[f'RS_Ratio_Norm_{name}'] = 100 + ((df[f'RS_Ratio_{name}'] - rolling_mean_ratio) / rolling_std_ratio)
+            df[f'RS_Mom_{name}'] = df[f'RS_Ratio_Norm_{name}'].pct_change(periods=window_mom) * 100
+            
+            rolling_mean_mom = df[f'RS_Mom_{name}'].rolling(60).mean()
+            rolling_std_mom = df[f'RS_Mom_{name}'].rolling(60).std().replace(0, np.nan)
+            
+            df[f'RS_Mom_Norm_{name}'] = 100 + ((df[f'RS_Mom_{name}'] - rolling_mean_mom) / rolling_std_mom)
+            
+            # Clean data validation before plotting points
+            final_x = df[f'RS_Ratio_Norm_{name}'].dropna().iloc[-1]
+            final_y = df[f'RS_Mom_Norm_{name}'].dropna().iloc[-1]
+            
+            rrg_results[name] = {'x': final_x, 'y': final_y}
 
-    # 3. Plotting the Live Chart
-    fig, ax = plt.subplots(figsize=(10, 8))
-    ax.axhline(100, color='gray', linestyle='--', linewidth=1)
-    ax.axvline(100, color='gray', linestyle='--', linewidth=1)
+    # 2. REDUCED SIZE: Changed figsize from (10, 8) down to a compact (7, 5)
+    fig, ax = plt.subplots(figsize=(7, 5))
+    ax.axhline(100, color='gray', linestyle='--', linewidth=0.8)
+    ax.axvline(100, color='gray', linestyle='--', linewidth=0.8)
     
-    # Add Quadrant Background Color Labels
-    ax.text(100.5, 103, "LEADING", color="green", fontsize=12, fontweight="bold")
-    ax.text(100.5, 96.5, "WEAKENING", color="orange", fontsize=12, fontweight="bold")
-    ax.text(96.5, 96.5, "LAGGING", color="red", fontsize=12, fontweight="bold")
-    ax.text(96.5, 103, "IMPROVING", color="blue", fontsize=12, fontweight="bold")
+    # Position quadrant background text labels comfortably 
+    ax.text(100.2, 102, "LEADING", color="green", fontsize=9, fontweight="bold")
+    ax.text(100.2, 97.5, "WEAKENING", color="orange", fontsize=9, fontweight="bold")
+    ax.text(97.5, 97.5, "LAGGING", color="red", fontsize=9, fontweight="bold")
+    ax.text(97.5, 102, "IMPROVING", color="blue", fontsize=9, fontweight="bold")
     
-    # Scatter plot each sector's current live coordinate
     for name, coords in rrg_results.items():
         x, y = coords['x'], coords['y']
         
-        # Determine Color Dynamic based on Position
         if x >= 100 and y >= 100: col = 'green'
         elif x >= 100 and y < 100: col = 'orange'
         elif x < 100 and y < 100: col = 'red'
         else: col = 'blue'
         
-        ax.scatter(x, y, color=col, s=200, edgecolors='black', zorder=5)
-        ax.annotate(name, (x, y), textcoords="offset points", xytext=(0,12), ha='center', fontweight='bold')
+        # Reduced bubble marker sizing down to 100 for a cleaner spatial footprint
+        ax.scatter(x, y, color=col, s=100, edgecolors='black', zorder=5)
+        ax.annotate(name, (x, y), textcoords="offset points", xytext=(0,8), ha='center', fontweight='bold', fontsize=8)
     
-    ax.set_xlim(95, 105)
-    ax.set_ylim(95, 105)
-    ax.set_xlabel("Relative Strength (RS-Ratio)")
-    ax.set_ylabel("Relative Momentum (RS-Momentum)")
-    plt.grid(True, which='both', linestyle=':', alpha=0.5)
+    ax.set_xlim(96, 104)
+    ax.set_ylim(96, 104)
+    ax.set_xlabel("Relative Strength (RS-Ratio)", fontsize=9)
+    ax.set_ylabel("Relative Momentum (RS-Momentum)", fontsize=9)
+    ax.tick_params(axis='both', which='major', labelsize=8)
+    plt.grid(True, which='both', linestyle=':', alpha=0.4)
     
-    st.pyplot(fig)
-    st.success("Data successfully fetched live from NSE. Refresh your browser tab to update anytime!")
+    # Display the refined chart cleanly in Streamlit layout columns
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.pyplot(fig)
+        
+    st.success("Data safely processed across sectors! Refresh browser tab to pull latest updates.")
 
 except Exception as e:
-    st.error(f"Live Feed Error: {e}. The market session might be closed or API limits reached.")
+    st.error(f"Live Feed Processing Notice: {e}. Check asset connectivity options.")
