@@ -15,6 +15,9 @@ st.markdown("""
             padding-left: 2rem !important;
             padding-right: 2rem !important;
         }
+        .reportview-container .main .block-container {
+            max-width: 100% !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -33,7 +36,7 @@ BENCHMARK_MAP = {
 }
 BENCHMARK = BENCHMARK_MAP[BENCHMARK_LABEL]
 
-TAIL_LENGTH = st.sidebar.slider("Counts (Tail Days Path)", min_value=3, max_value=15, value=5, step=1)
+TAIL_LENGTH = st.sidebar.slider("Counts (Tail Days Path)", min_value=3, max_value=15, value=8, step=1)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🚀 Add Custom Stock")
@@ -58,7 +61,6 @@ INDEX_SECTORS = {
     "Silver BeES (Commodity)": "SILVERBEES.NS" 
 }
 
-# Base Blue-Chip Stocks List
 STOCK_TICKERS = {
     "Reliance": "RELIANCE.NS",
     "HDFC Bank": "HDFCBANK.NS",
@@ -85,17 +87,11 @@ def load_all_market_data(ticker_list):
         st.error(f"Error fetching data from Yahoo Finance: {e}")
         return pd.DataFrame()
 
-def calculate_and_plot_plotly_rrg(df, items_dict, benchmark_ticker, tail_len):
+def process_rrg_data(df, items_dict, benchmark_ticker, tail_len):
     window_rs = 12  
     window_mom = 12 
+    rrg_history = {}
     
-    # Initialize interactive figure layout
-    fig = go.Figure()
-    
-    # Draw Background Quadrant Shading & Divider Lines
-    fig.add_hline(y=100, line_dash="dash", line_color="gray", line_width=1)
-    fig.add_vline(x=100, line_dash="dash", line_color="gray", line_width=1)
-
     for name, ticker in items_dict.items():
         if ticker in df.columns and not df[ticker].dropna().empty and benchmark_ticker in df.columns:
             valid_series = df[ticker].dropna()
@@ -116,62 +112,102 @@ def calculate_and_plot_plotly_rrg(df, items_dict, benchmark_ticker, tail_len):
             rs_mom_norm = 100 + ((rs_mom - rolling_mean_mom) / rolling_std_mom)
             
             clean_df = pd.DataFrame({'x': rs_ratio_norm, 'y': rs_mom_norm}).dropna()
-            
             if len(clean_df) >= tail_len:
-                tail_data = clean_df.tail(tail_len)
-                x_history = tail_data['x'].tolist()
-                y_history = tail_data['y'].tolist()
+                rrg_history[name] = clean_df.tail(tail_len).to_dict('records')
                 
-                current_x, current_y = x_history[-1], y_history[-1]
-                
-                # Dynamic Quadrant Color Selection Engine
-                if current_x >= 100 and current_y >= 100: col = 'green'
-                elif current_x >= 100 and current_y < 100: col = 'orange'
-                elif current_x < 100 and current_y < 100: col = 'red'
-                else: col = 'blue'
-                
-                # Plotly Trace 1: Draw the history trailing path line
-                fig.add_trace(go.Scatter(
-                    x=x_history, y=y_history,
-                    mode='lines',
-                    line=dict(color=col, width=2),
-                    opacity=0.4,
-                    showlegend=False,
-                    hoverinfo='skip'
-                ))
-                
-                # Plotly Trace 2: Draw the interactive header point bubble
-                fig.add_trace(go.Scatter(
-                    x=[current_x], y=[current_y],
-                    mode='markers+text',
-                    name=name,
-                    marker=dict(color=col, size=12, line=dict(color='black', width=1)),
-                    text=[name],
-                    textposition="top center",
-                    textfont=dict(size=10, weight="bold"),
-                    hovertemplate=f"<b>{name}</b><br>RS-Ratio: %{{x|..2f}}<br>RS-Momentum: %{{y|..2f}}<extra></extra>"
-                ))
+    return rrg_history
 
-    # Configure clean axes limits and permanent static text quadrant annotations
+def generate_plotly_chart(rrg_history):
+    fig = go.Figure()
+    fig.add_hline(y=100, line_dash="dash", line_color="gray", line_width=1)
+    fig.add_vline(x=100, line_dash="dash", line_color="gray", line_width=1)
+
+    for name, path in rrg_history.items():
+        x_history = [pt['x'] for pt in path]
+        y_history = [pt['y'] for pt in path]
+        current_x, current_y = x_history[-1], y_history[-1]
+        
+        if current_x >= 100 and current_y >= 100: col = 'green'
+        elif current_x >= 100 and current_y < 100: col = 'orange'
+        elif current_x < 100 and current_y < 100: col = 'red'
+        else: col = 'blue'
+        
+        # Historical trail path
+        fig.add_trace(go.Scatter(
+            x=x_history, y=y_history, mode='lines',
+            line=dict(color=col, width=2.5), opacity=0.35, showlegend=False, hoverinfo='skip'
+        ))
+        
+        # Target header bubble point
+        fig.add_trace(go.Scatter(
+            x=[current_x], y=[current_y],
+            mode='markers+text',
+            name=name,
+            marker=dict(color=col, size=14, line=dict(color='black', width=1.5)),
+            text=[name],
+            textposition="top center",
+            # FIXED font: Increased point marker typography size from 10 to 13
+            textfont=dict(size=13, color='black'),
+            hovertemplate=f"<b>{name}</b><br>RS-Ratio: %{{x:.2f}}<br>RS-Momentum: %{{y:.2f}}<extra></extra>"
+        ))
+
     fig.update_layout(
-        xaxis=dict(title="Relative Strength (RS-Ratio)", range=[96, 104]),
-        yaxis=dict(title="Relative Momentum (RS-Momentum)", range=[96, 104]),
-        margin=dict(l=20, r=20, t=20, b=20),
+        xaxis=dict(title="Relative Strength (RS-Ratio)", range=[95, 105]),
+        yaxis=dict(title="Relative Momentum (RS-Momentum)", range=[95, 105]),
+        margin=dict(l=10, r=10, t=10, b=10),
         height=680,
         plot_bgcolor='white',
         hovermode='closest',
         annotations=[
-            dict(x=102, y=103, text="LEADING", showarrow=False, font=dict(color="green", size=14, weight="bold")),
-            dict(x=102, y=97, text="WEAKENING", showarrow=False, font=dict(color="orange", size=14, weight="bold")),
-            dict(x=98, y=97, text="LAGGING", showarrow=False, font=dict(color="red", size=14, weight="bold")),
-            dict(x=98, y=103, text="IMPROVING", showarrow=False, font=dict(color="blue", size=14, weight="bold"))
+            dict(x=102.5, y=103.5, text="LEADING", showarrow=False, font=dict(color="green", size=14, weight="bold")),
+            dict(x=102.5, y=96.5, text="WEAKENING", showarrow=False, font=dict(color="orange", size=14, weight="bold")),
+            dict(x=97.5, y=96.5, text="LAGGING", showarrow=False, font=dict(color="red", size=14, weight="bold")),
+            dict(x=97.5, y=103.5, text="IMPROVING", showarrow=False, font=dict(color="blue", size=14, weight="bold"))
         ]
     )
-    
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
-    
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#f2f2f2')
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f2f2f2')
     return fig
+
+def display_scorecard_table(rrg_history):
+    """Generates an automated, clean visual trading action scorecard"""
+    scorecard_rows = []
+    
+    for name, path in rrg_history.items():
+        current_x = path[-1]['x']
+        current_y = path[-1]['y']
+        prev_y = path[-2]['y'] if len(path) > 1 else current_y
+        
+        # Determine Quadrant Category
+        if current_x >= 100 and current_y >= 100:
+            quadrant = "LEADING"
+            action = "🟢 STRONG BUY (Outperforming Index)"
+        elif current_x >= 100 and current_y < 100:
+            quadrant = "WEAKENING"
+            action = "🟡 HOLD / BOOK PROFITS (Fading Strength)"
+        elif current_x < 100 and current_y < 100:
+            quadrant = "LAGGING"
+            action = "🔴 AVOID / SHORT (Underperforming)"
+        else:
+            quadrant = "IMPROVING"
+            action = "🔵 ACCUMULATE / WATCH (Gaining Momentum)"
+            
+        trend = "📈 Rising" if current_y > prev_y else "📉 Falling"
+        
+        scorecard_rows.append({
+            "Asset Name": name,
+            "Quadrant Status": quadrant,
+            "RS-Ratio (Strength)": round(current_x, 2),
+            "RS-Momentum (Speed)": round(current_y, 2),
+            "Momentum Trend": trend,
+            "Tactical Action Rule": action
+        })
+        
+    score_df = pd.DataFrame(scorecard_rows)
+    if not score_df.empty:
+        # Sort values cleanly so strongest Leading assets appear on top automatically
+        score_df = score_df.sort_values(by=["RS-Ratio (Strength)"], ascending=False).reset_index(drop=True)
+        st.dataframe(score_df, use_container_width=True, hide_index=True)
 
 try:
     required_tickers = list(BENCHMARK_MAP.values()) + list(INDEX_SECTORS.values()) + list(STOCK_TICKERS.values())
@@ -181,15 +217,21 @@ try:
     
     with tab1:
         st.subheader(f"Sector & Commodity Indices vs {BENCHMARK_LABEL}")
-        plotly_index_fig = calculate_and_plot_plotly_rrg(master_data.copy(), INDEX_SECTORS, BENCHMARK, TAIL_LENGTH)
-        st.plotly_chart(plotly_index_fig, use_container_width=True)
+        index_history = process_rrg_data(master_data.copy(), INDEX_SECTORS, BENCHMARK, TAIL_LENGTH)
+        st.plotly_chart(generate_plotly_chart(index_history), use_container_width=True)
+        
+        st.markdown("### 📊 Automated Sectoral ETF Scorecard")
+        display_scorecard_table(index_history)
         
     with tab2:
         st.subheader(f"Top Heavyweight & Custom Stocks vs {BENCHMARK_LABEL}")
-        plotly_stock_fig = calculate_and_plot_plotly_rrg(master_data.copy(), STOCK_TICKERS, BENCHMARK, TAIL_LENGTH)
-        st.plotly_chart(plotly_stock_fig, use_container_width=True)
+        stock_history = process_rrg_data(master_data.copy(), STOCK_TICKERS, BENCHMARK, TAIL_LENGTH)
+        st.plotly_chart(generate_plotly_chart(stock_history), use_container_width=True)
         
-    st.success("Widescreen interactive canvas active! Hover over clustered items to separate overlapping sectors.")
+        st.markdown("### 📊 Automated Stock Trading Scorecard")
+        display_scorecard_table(stock_history)
+        
+    st.success("Widescreen chart text resized and tactical decision tables are fully live!")
 
 except Exception as e:
     st.error(f"Execution Error Check: {e}")
