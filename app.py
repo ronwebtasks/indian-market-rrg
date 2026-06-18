@@ -2,55 +2,46 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
+# 1. Page Configuration for Widescreen Layout
 st.set_page_config(page_title="Live NSE RRG Dashboard", layout="wide")
 
 st.markdown("""
     <style>
-        .block-container { padding-top: 1rem !important; padding-bottom: 0rem !important; padding-left: 2rem !important; padding-right: 2rem !important; }
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 0rem !important;
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
+# 2. Configuration Control Sidebar Panel
 st.sidebar.title("🔧 Settings Panel")
 
-BENCHMARK_LABEL = st.sidebar.selectbox("Select Benchmark Index", ["Nifty 50", "Nifty 100", "Nifty 200"])
-BENCHMARK_MAP = {"Nifty 50": "^NSEI", "Nifty 100": "^CNX100", "Nifty 200": "^CNX200"}
+BENCHMARK_LABEL = st.sidebar.selectbox(
+    "Select Benchmark Index",
+    ["Nifty 50", "Nifty 100", "Nifty 200"]
+)
+
+BENCHMARK_MAP = {
+    "Nifty 50": "^NSEI",
+    "Nifty 100": "^CNX100",
+    "Nifty 200": "^CNX200"
+}
 BENCHMARK = BENCHMARK_MAP[BENCHMARK_LABEL]
 
 TAIL_LENGTH = st.sidebar.slider("Counts (Tail Days Path)", min_value=3, max_value=15, value=5, step=1)
 
-# --- NEW MULTI-SELECT STOCK ENGINE ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("🚀 Stock Selection Engine")
-
-# Extended options menu covering multiple sectors
-AVAILABLE_STOCKS = {
-    "Reliance": "RELIANCE.NS", "HDFC Bank": "HDFCBANK.NS", "ICICI Bank": "ICICIBANK.NS",
-    "TCS": "TCS.NS", "Infosys": "INFY.NS", "Bharti Airtel": "BHARTIARTL.NS",
-    "L&T": "LT.NS", "SBI": "SBIN.NS", "ITC": "ITC.NS", "Tata Motors": "TATAMOTORS.NS",
-    "Maruti": "MARUTI.NS", "Sun Pharma": "SUNPHARMA.NS", "Adani Ent": "ADANIENT.NS",
-    "Tata Steel": "TATASTEEL.NS", "Axis Bank": "AXISBANK.NS", "Kotak Bank": "KOTAKBANK.NS",
-    "NTPC": "NTPC.NS", "M&M": "M&M.NS", "UltraTech": "ULTRACEMCO.NS", "HCL Tech": "HCLTECH.NS"
-}
-
-selected_stock_labels = st.sidebar.multiselect(
-    "Choose Stocks to Monitor:",
-    options=list(AVAILABLE_STOCKS.keys()),
-    default=["Reliance", "HDFC Bank", "ICICI Bank", "TCS", "Infosys", "SBI"] # Clean pre-loaded default
-)
-
-# Rebuild custom dictionaries on the fly based on user choices
-STOCK_TICKERS = {label: AVAILABLE_STOCKS[label] for label in selected_stock_labels}
-
-# Custom manual search input box
-custom_ticker_input = st.sidebar.text_input("Add Any Other NSE Ticker (e.g., ADANIPORTS):", "").strip().upper()
-if custom_ticker_input:
-    formatted_ticker = custom_ticker_input if custom_ticker_input.endswith(".NS") else f"{custom_ticker_input}.NS"
-    STOCK_TICKERS[custom_ticker_input] = formatted_ticker
+st.sidebar.subheader("🚀 Add Custom Stock")
+custom_ticker_input = st.sidebar.text_input("Type NSE Ticker (e.g., ADANIENT):", "").strip().upper()
 
 st.title("🇮🇳 Indian Market Relative Rotation Graph (RRG)")
 
+# Asset Lists
 INDEX_SECTORS = {
     "Nifty Bank": "^NSEBANK",
     "Nifty IT": "^CNXIT",
@@ -61,91 +52,144 @@ INDEX_SECTORS = {
     "Nifty Energy": "^CNXENERGY",
     "Nifty Midcap 100": "^CRSMID",
     "Nifty Smallcap 100": "^CNXSMALL",
-    "Nifty Defence (ETF)": "GROWWDEFNC.NS", 
+    "Nifty Defence (ETF)": "GROWWDEFNC.NS",  
     "Nifty Real Estate": "^CNXREALTY",      
     "Gold BeES (Commodity)": "GOLDBEES.NS",  
     "Silver BeES (Commodity)": "SILVERBEES.NS" 
 }
 
+# Base Blue-Chip Stocks List
+STOCK_TICKERS = {
+    "Reliance": "RELIANCE.NS",
+    "HDFC Bank": "HDFCBANK.NS",
+    "ICICI Bank": "ICICIBANK.NS",
+    "TCS": "TCS.NS",
+    "Infosys": "INFY.NS",
+    "Bharti Airtel": "BHARTIARTL.NS",
+    "L&T": "LT.NS",
+    "SBI": "SBIN.NS",
+    "ITC": "ITC.NS",
+    "Tata Motors": "TATAMOTORS.NS"
+}
+
+if custom_ticker_input:
+    formatted_ticker = custom_ticker_input if custom_ticker_input.endswith(".NS") else f"{custom_ticker_input}.NS"
+    STOCK_TICKERS[custom_ticker_input] = formatted_ticker
+
 @st.cache_data(ttl=1800)
 def load_all_market_data(ticker_list):
-    if not ticker_list: return pd.DataFrame()
-    return yf.download(ticker_list, period="2y")['Close']
+    try:
+        data = yf.download(ticker_list, period="2y")['Close']
+        return data
+    except Exception as e:
+        st.error(f"Error fetching data from Yahoo Finance: {e}")
+        return pd.DataFrame()
 
-def calculate_and_plot_rrg(df, items_dict, benchmark_ticker, tail_len):
-    if not items_dict or df.empty:
-        fig, ax = plt.subplots(figsize=(13, 7))
-        ax.text(0.5, 0.5, "Select or Add stocks from the sidebar to generate graph", ha='center', va='center', fontsize=12)
-        return fig
-        
+def calculate_and_plot_plotly_rrg(df, items_dict, benchmark_ticker, tail_len):
     window_rs = 12  
     window_mom = 12 
-    rrg_history = {}
     
+    # Initialize interactive figure layout
+    fig = go.Figure()
+    
+    # Draw Background Quadrant Shading & Divider Lines
+    fig.add_hline(y=100, line_dash="dash", line_color="gray", line_width=1)
+    fig.add_vline(x=100, line_dash="dash", line_color="gray", line_width=1)
+
     for name, ticker in items_dict.items():
         if ticker in df.columns and not df[ticker].dropna().empty and benchmark_ticker in df.columns:
-            df[f'RS_{name}'] = (df[ticker] / df[benchmark_ticker]) * 100
-            df[f'RS_Ratio_{name}'] = df[f'RS_{name}'].rolling(window=window_rs).mean()
+            valid_series = df[ticker].dropna()
+            available_history_count = len(valid_series)
+            current_rolling_window = min(60, max(15, available_history_count // 3))
             
-            rolling_mean_ratio = df[f'RS_Ratio_{name}'].rolling(60).mean()
-            rolling_std_ratio = df[f'RS_Ratio_{name}'].rolling(60).std().replace(0, np.nan)
-            df[f'RS_Ratio_Norm_{name}'] = 100 + ((df[f'RS_Ratio_{name}'] - rolling_mean_ratio) / rolling_std_ratio)
+            aligned_benchmark = df[benchmark_ticker].loc[valid_series.index]
+            rs_series = (valid_series / aligned_benchmark) * 100
+            rs_ratio = rs_series.rolling(window=window_rs).mean()
             
-            df[f'RS_Mom_{name}'] = df[f'RS_Ratio_Norm_{name}'].pct_change(periods=window_mom) * 100
-            rolling_mean_mom = df[f'RS_Mom_{name}'].rolling(60).mean()
-            rolling_std_mom = df[f'RS_Mom_{name}'].rolling(60).std().replace(0, np.nan)
-            df[f'RS_Mom_Norm_{name}'] = 100 + ((df[f'RS_Mom_{name}'] - rolling_mean_mom) / rolling_std_mom)
+            rolling_mean_ratio = rs_ratio.rolling(current_rolling_window).mean()
+            rolling_std_ratio = rs_ratio.rolling(current_rolling_window).std().replace(0, np.nan)
+            rs_ratio_norm = 100 + ((rs_ratio - rolling_mean_ratio) / rolling_std_ratio)
             
-            clean_df = pd.DataFrame({'x': df[f'RS_Ratio_Norm_{name}'], 'y': df[f'RS_Mom_Norm_{name}']}).dropna()
+            rs_mom = rs_ratio_norm.pct_change(periods=window_mom) * 100
+            rolling_mean_mom = rs_mom.rolling(current_rolling_window).mean()
+            rolling_std_mom = rs_mom.rolling(current_rolling_window).std().replace(0, np.nan)
+            rs_mom_norm = 100 + ((rs_mom - rolling_mean_mom) / rolling_std_mom)
+            
+            clean_df = pd.DataFrame({'x': rs_ratio_norm, 'y': rs_mom_norm}).dropna()
+            
             if len(clean_df) >= tail_len:
-                rrg_history[name] = clean_df.tail(tail_len).to_dict('records')
+                tail_data = clean_df.tail(tail_len)
+                x_history = tail_data['x'].tolist()
+                y_history = tail_data['y'].tolist()
+                
+                current_x, current_y = x_history[-1], y_history[-1]
+                
+                # Dynamic Quadrant Color Selection Engine
+                if current_x >= 100 and current_y >= 100: col = 'green'
+                elif current_x >= 100 and current_y < 100: col = 'orange'
+                elif current_x < 100 and current_y < 100: col = 'red'
+                else: col = 'blue'
+                
+                # Plotly Trace 1: Draw the history trailing path line
+                fig.add_trace(go.Scatter(
+                    x=x_history, y=y_history,
+                    mode='lines',
+                    line=dict(color=col, width=2),
+                    opacity=0.4,
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+                
+                # Plotly Trace 2: Draw the interactive header point bubble
+                fig.add_trace(go.Scatter(
+                    x=[current_x], y=[current_y],
+                    mode='markers+text',
+                    name=name,
+                    marker=dict(color=col, size=12, line=dict(color='black', width=1)),
+                    text=[name],
+                    textposition="top center",
+                    textfont=dict(size=10, weight="bold"),
+                    hovertemplate=f"<b>{name}</b><br>RS-Ratio: %{{x|..2f}}<br>RS-Momentum: %{{y|..2f}}<extra></extra>"
+                ))
 
-    fig, ax = plt.subplots(figsize=(13, 7))
-    ax.axhline(100, color='gray', linestyle='--', linewidth=1)
-    ax.axvline(100, color='gray', linestyle='--', linewidth=1)
+    # Configure clean axes limits and permanent static text quadrant annotations
+    fig.update_layout(
+        xaxis=dict(title="Relative Strength (RS-Ratio)", range=[96, 104]),
+        yaxis=dict(title="Relative Momentum (RS-Momentum)", range=[96, 104]),
+        margin=dict(l=20, r=20, t=20, b=20),
+        height=680,
+        plot_bgcolor='white',
+        hovermode='closest',
+        annotations=[
+            dict(x=102, y=103, text="LEADING", showarrow=False, font=dict(color="green", size=14, weight="bold")),
+            dict(x=102, y=97, text="WEAKENING", showarrow=False, font=dict(color="orange", size=14, weight="bold")),
+            dict(x=98, y=97, text="LAGGING", showarrow=False, font=dict(color="red", size=14, weight="bold")),
+            dict(x=98, y=103, text="IMPROVING", showarrow=False, font=dict(color="blue", size=14, weight="bold"))
+        ]
+    )
     
-    ax.text(100.3, 103.5, "LEADING", color="green", fontsize=11, fontweight="bold")
-    ax.text(100.3, 96.5, "WEAKENING", color="orange", fontsize=11, fontweight="bold")
-    ax.text(96.5, 96.5, "LAGGING", color="red", fontsize=11, fontweight="bold")
-    ax.text(96.5, 103.5, "IMPROVING", color="blue", fontsize=11, fontweight="bold")
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#f0f0f0')
     
-    for name, path in rrg_history.items():
-        x_history = [pt['x'] for pt in path]
-        y_history = [pt['y'] for pt in path]
-        current_x, current_y = x_history[-1], y_history[-1]
-        
-        col = 'green' if current_x >= 100 and current_y >= 100 else 'orange' if current_x >= 100 and current_y < 100 else 'red' if current_x < 100 and current_y < 100 else 'blue'
-        
-        ax.plot(x_history, y_history, color=col, alpha=0.35, linewidth=2)
-        prev_x, prev_y = x_history[-2], y_history[-2]
-        ax.annotate('', xy=(current_x, current_y), xytext=(prev_x, prev_y), arrowprops=dict(arrowstyle="-|>", color=col, lw=2.5, mutation_scale=14, zorder=6))
-        ax.scatter(current_x, current_y, color=col, s=120, edgecolors='black', zorder=7)
-        ax.annotate(name, (current_x, current_y), textcoords="offset points", xytext=(0,10), ha='center', fontweight='bold', fontsize=8.5)
-    
-    ax.set_xlim(96, 104)
-    ax.set_ylim(96, 104)
-    ax.set_xlabel("Relative Strength (RS-Ratio)", fontsize=10)
-    ax.set_ylabel("Relative Momentum (RS-Momentum)", fontsize=10)
-    plt.grid(True, which='both', linestyle=':', alpha=0.4)
     return fig
 
 try:
     required_tickers = list(BENCHMARK_MAP.values()) + list(INDEX_SECTORS.values()) + list(STOCK_TICKERS.values())
     master_data = load_all_market_data(required_tickers)
     
-    tab1, tab2 = st.tabs(["🏛️ Sectoral Indices Matrix", "🚀 Custom Stocks Canvas"])
+    tab1, tab2 = st.tabs(["🏛️ Sectoral Indices Matrix", "🚀 Blue-Chip Individual Stocks"])
     
     with tab1:
-        st.subheader(f"Sector & Cap Indices vs {BENCHMARK_LABEL}")
-        fig_index = calculate_and_plot_rrg(master_data.copy(), INDEX_SECTORS, BENCHMARK, TAIL_LENGTH)
-        st.pyplot(fig_index, use_container_width=True)
+        st.subheader(f"Sector & Commodity Indices vs {BENCHMARK_LABEL}")
+        plotly_index_fig = calculate_and_plot_plotly_rrg(master_data.copy(), INDEX_SECTORS, BENCHMARK, TAIL_LENGTH)
+        st.plotly_chart(plotly_index_fig, use_container_width=True)
         
     with tab2:
-        st.subheader(f"Selected Stocks vs {BENCHMARK_LABEL}")
-        fig_stock = calculate_and_plot_rrg(master_data.copy(), STOCK_TICKERS, BENCHMARK, TAIL_LENGTH)
-        st.pyplot(fig_stock, use_container_width=True)
+        st.subheader(f"Top Heavyweight & Custom Stocks vs {BENCHMARK_LABEL}")
+        plotly_stock_fig = calculate_and_plot_plotly_rrg(master_data.copy(), STOCK_TICKERS, BENCHMARK, TAIL_LENGTH)
+        st.plotly_chart(plotly_stock_fig, use_container_width=True)
         
-    st.success(f"Analysis successfully loaded.")
+    st.success("Widescreen interactive canvas active! Hover over clustered items to separate overlapping sectors.")
 
 except Exception as e:
     st.error(f"Execution Error Check: {e}")
