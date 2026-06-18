@@ -52,13 +52,19 @@ if custom_ticker_input:
 st.title("🇮🇳 Indian Market Relative Rotation Graph (RRG)")
 
 INDEX_SECTORS = {
-    "Nifty Bank": "^NSEBANK", "Nifty IT": "^CNXIT", "Nifty FMCG": "^CNXFMCG",
-    "Nifty Auto": "^CNXAUTO", "Nifty Infra": "^CNXINFRA", "Nifty Metal": "^CNXMETAL",
-    "Nifty Energy": "^CNXENERGY", "Nifty Midcap 100": "^CRSMID", "Nifty Smallcap 100": "^CNXSMALL"
-    "Nifty Defence (ETF)": "DEFENCE.NS",    # Added Defence Proxy ETF
-    "Nifty Real Estate": "^CNXREALTY",      # Added Real Estate Index
-    "Gold BeES (Commodity)": "GOLDBEES.NS",  # Added Gold ETF
-    "Silver BeES (Commodity)": "SILVERBEES.NS" # Added Silver ETF
+    "Nifty Bank": "^NSEBANK",
+    "Nifty IT": "^CNXIT",
+    "Nifty FMCG": "^CNXFMCG",
+    "Nifty Auto": "^CNXAUTO",
+    "Nifty Infra": "^CNXINFRA",
+    "Nifty Metal": "^CNXMETAL",
+    "Nifty Energy": "^CNXENERGY",
+    "Nifty Midcap 100": "^CRSMID",
+    "Nifty Smallcap 100": "^CNXSMALL",
+    "Nifty Defence (ETF)": "DEFENCE.NS",    
+    "Nifty Real Estate": "^CNXREALTY",      
+    "Gold BeES (Commodity)": "GOLDBEES.NS",  
+    "Silver BeES (Commodity)": "SILVERBEES.NS" 
 }
 
 @st.cache_data(ttl=1800)
