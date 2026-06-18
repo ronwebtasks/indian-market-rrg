@@ -61,7 +61,7 @@ INDEX_SECTORS = {
     "Nifty Energy": "^CNXENERGY",
     "Nifty Midcap 100": "^CRSMID",
     "Nifty Smallcap 100": "^CNXSMALL",
-    "Nifty Defence (ETF)": "DEFENCE.NS",    
+    "Nifty Defence (ETF)": "GROWWDEFNC.NS", 
     "Nifty Real Estate": "^CNXREALTY",      
     "Gold BeES (Commodity)": "GOLDBEES.NS",  
     "Silver BeES (Commodity)": "SILVERBEES.NS" 
