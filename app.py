@@ -50,6 +50,7 @@ INDEX_SECTORS = {
     "Nifty IT": "^CNXIT",
     "Nifty FMCG": "^CNXFMCG",
     "Nifty Auto": "^CNXAUTO",
+    "Nifty PHARMA": "^CNXPHARMA",
     "Nifty Infra": "^CNXINFRA",
     "Nifty Metal": "^CNXMETAL",
     "Nifty Energy": "^CNXENERGY",
